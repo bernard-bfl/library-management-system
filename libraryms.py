@@ -1,4 +1,27 @@
-from libraryms1 import get_connection
+import os 
+import psycopg2
+from dotenv import load_dotenv
+
+
+#from libraryms1 import get_connection
+
+load_dotenv()
+def get_connection():
+    """
+    Establishes and returns a connection to the PostgreSQL database.
+    Pulls credentials from environment variables, defaulting to local configurations.
+    """
+    try:
+        return psycopg2.connect(
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"), 
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT")
+        )
+    except Exception as e:
+        print("CRITICAL: Unable to connect to the PostgreSQL database.")
+        raise e
 
 books_table = """CREATE TABLE IF NOT EXISTS books (
 id SERIAL PRIMARY KEY,
@@ -343,7 +366,7 @@ def listing_borrowed_books():
     except Exception as e:
         print(f"Error listing borrowed books", e)
 if __name__ == "__main__":
-    listing_borrowed_books()
+    initialize()
     
     
     
