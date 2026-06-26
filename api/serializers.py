@@ -11,7 +11,7 @@ class UserSerializer(serializers.ModelSerializer):
 class BookSerializer(serializers.ModelSerializer):
     class Meta:
         model = Book
-        fields = ['id', 'title', 'published_year', 'is_available']
+        fields = ['id', 'title', 'author', 'published_year', 'is_available']
 
 class MemberSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)

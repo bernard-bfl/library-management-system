@@ -1,11 +1,234 @@
+import os
+import random
+from django.core.cache import cache
+from django.contrib.auth.models import User
 from django.shortcuts import render
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Book, Member, Bororwing, Reservation
 from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, ReservationSerializer
+from .email_service import send_otp_email
 
 # Create your views here.
+
+#authentication views
+#POST/api/auth/signup
+@api_view(['POST'])
+def signup(request):
+    username = request.data.get('username')
+    email = request.data.get('email')
+    password = request.data.get('password')
+    location = request.data.get('location')
+    age = request.data.get('age')
+
+    #validation check for all fields
+    if not all([username, email, password, location, age]):
+        return Response(
+            {'error': 'all fields are required: username, email, password, location, age'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    #username validation 
+    if User.objects.filter(username=username).exists():
+        return Response(
+            {'error': 'sorry, username already taken'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    #email validation
+    if User.objects.filter(email=email).exists():
+        return Response(
+            {'error': 'email already registered'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    #creating user where here django hashes the password automatically
+    user = User.objects.create_user(
+        username=username,
+        email=email,
+        password=password
+    )
+
+    #creating a linked member profile 
+    Member.objects.create(
+        user=user,
+        location=location,
+        age=age
+    )
+
+    #issuing tokens to users after a successful signup
+    refresh = RefreshToken.for_user(user)
+
+    return Response({
+        'message': 'Account created successfully',
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+    }, status=status.HTTP_201_CREATED)
+
+#POST/api/auth/login
+def login(request):
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    if not all([email, password]):
+        return Response(
+            {'error': 'email and password are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'invalid credentials'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    if not user.check_password(password):
+        return Response(
+            {'error': 'invalid credentials'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+     # generate 6 digit OTP
+    otp = str(random.randint(100000, 999999))
+
+    # store in cache — expires in 5 minutes
+    cache.set(f'otp_{email}', otp, timeout=300)
+
+    # sending otp via EmailJS
+    email_sent = send_otp_email(email, otp)
+    if not email_sent:
+        cache.delete(f'otp_{email}')
+        return Response(
+            {'error': 'failed to send OTP, please try again'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    return Response({
+        'message': 'OTP has been sent to your mail, please verify to complete login'
+    }, status=status.HTTP_200_OK)
+
+
+
+# POST /api/auth/login/verify-otp/
+#second step; here we verify the otp and return jwt tokens
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_otp(request):
+    email = request.data.get('email')
+    otp = request.data.get('otp')
+
+    if not all([email, otp]):
+        return Response(
+            {'error': 'email and otp are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    cached_otp = cache.get(f'otp_{email}')
+
+    if cached_otp is None:
+        return Response(
+            {'error': 'OTP has expired, please login again'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if cached_otp != otp:
+        return Response(
+            {'error': 'invalid OTP'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # delete OTP immediately so it can't be reused
+    cache.delete(f'otp_{email}')
+
+    #here after logging in django tries to fetch the user profile
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'user not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    refresh = RefreshToken.for_user(user)
+
+    return Response({
+        'message': f'Welcome back {user.username}',
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+    }, status=status.HTTP_200_OK)
+
+
+
+# GET /api/auth/profile/
+# PUT /api/auth/profile/
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def profile(request):
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 @api_view(['GET', 'POST'])
 def book_list_create(request):

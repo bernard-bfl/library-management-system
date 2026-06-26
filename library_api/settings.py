@@ -133,3 +133,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+EMAILJS_CONFIG = {
+    "SERVICE_ID": os.environ.get("EMAILJS_SERVICE_ID"),
+    "TEMPLATE_ID": os.environ.get("EMAILJS_TEMPLATE_ID"),
+    "PUBLIC_KEY": os.environ.get("EMAILJS_PUBLIC_KEY"),
+    "PRIVATE_KEY": os.environ.get("EMAILJS_PRIVATE_KEY"),
+}
