@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 
 import os 
+from datetime import timedelta
 import environ
 from dotenv import load_dotenv
 load_dotenv
@@ -140,4 +141,24 @@ EMAILJS_CONFIG = {
     "TEMPLATE_ID": os.environ.get("EMAILJS_TEMPLATE_ID"),
     "PUBLIC_KEY": os.environ.get("EMAILJS_PUBLIC_KEY"),
     "PRIVATE_KEY": os.environ.get("EMAILJS_PRIVATE_KEY"),
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+}
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    }
 }

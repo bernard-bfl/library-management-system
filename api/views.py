@@ -17,6 +17,7 @@ from .email_service import send_otp_email
 #authentication views
 #POST/api/auth/signup
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def signup(request):
     username = request.data.get('username')
     email = request.data.get('email')
@@ -68,6 +69,8 @@ def signup(request):
     }, status=status.HTTP_201_CREATED)
 
 #POST/api/auth/login
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def login(request):
     email = request.data.get('email')
     password = request.data.get('password')
@@ -167,70 +170,31 @@ def verify_otp(request):
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])
 def profile(request):
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'member profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    if request.method == 'GET':
+        serializer = MemberSerializer(member)
+        return Response(serializer.data)
+    
+    elif request.method == 'PUT':
+        serializer = MemberSerializer(member, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#book views 
+# GET /api/books/
+# POST /api/books/
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def book_list_create(request):
     if request.method == 'GET':
         books = Book.ojects.all().order_by('id')
@@ -257,6 +221,7 @@ def book_list_create(request):
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
 def book_detail(request, pk):
     try:
         book = Book.objects.get(pk=pk)
@@ -291,6 +256,7 @@ def book_detail(request, pk):
     
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def book_search(request):
     keyword = request.query_params.get('q', '')
     if not keyword:

@@ -7,12 +7,14 @@ def send_otp_email(recipient_email, otp):
     url = "https://api.emailjs.com/api/v1.0/email/send"
 
     payload = {
-        "service_id": os.getenv("EMAIL_SERVICE_ID"),
+        "service_id": os.getenv("EMAILJS_SERVICE_ID"),
         "template_id": os.getenv("EMAILJS_TEMPLATE_ID"),
         "user_id": os.getenv("EMAILJS_PUBLIC_KEY"),
+        "accessToken": os.getenv("EMAILJS_PRIVATE_KEY"),
         "template_params": {
             "otp": otp,
             "to_email": recipient_email,
+            "company": "The Library",
         }
     }
 
