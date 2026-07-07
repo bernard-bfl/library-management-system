@@ -8,9 +8,11 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Book, Member, Bororwing, Reservation
+from .models import Book, Member, Reservation, Borrowing
 from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, ReservationSerializer
 from .email_service import send_otp_email
+from .permissions import IsAdminOrReadOnly, IsAdminOnly
+from datetime import date, timedelta
 
 # Create your views here.
 
@@ -194,7 +196,7 @@ def profile(request):
 # GET /api/books/
 # POST /api/books/
 @api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminOrReadOnly])
 def book_list_create(request):
     if request.method == 'GET':
         books = Book.ojects.all().order_by('id')
@@ -221,7 +223,7 @@ def book_list_create(request):
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminOrReadOnly])
 def book_detail(request, pk):
     try:
         book = Book.objects.get(pk=pk)
@@ -266,4 +268,249 @@ def book_search(request):
     return Response(serializer.data)
 
 
+#POST/api/borrow
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def borrow_book(request):
+    book_id = request.data.get('book_id')
+    
+    if not book_id:
+        return Response(
+            {'error': 'book_id is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    #get the member profile of the logged user 
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': "member profile not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #get book 
+    try:
+        book = Book.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'Sorry, book not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #checking if book is available
+    if not book.is_available:
+        return Response(
+            {'error': 'Oops, book is not available, you can reserve it instead'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    #check if the member has an active borrowing for this book
+    already_borrowed = Borrowing.objects.filter(
+        book=book,
+        member=member,
+        returning_date__isnull=True
+    ).exists()
 
+    if already_borrowed:
+        return Response(
+            {'error': 'Sorry, you have already borrowed this book!'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    #creating a borrowing record 
+    due_date = date.today() + timedelta(days=14)
+    borrowing = Borrowing.objects.create(
+        book=book,
+        member=member,
+        due_date=due_date
+    )
+    #marking the book as unavailable now after it has been borrowed
+    book.is_available = False
+    book.save()
+
+    serializer = BorrowingSerializer(borrowing)
+    return Response({
+        'message': 'book has been borrowed successfully',
+        'borrowing': serializer.data
+    }, status=status.HTTP_201_CREATED)
+
+
+#POST/api/return
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def return_book(request):
+    book_id = request.data.get('book_id')
+    
+    if not book_id:
+        return Response(
+            {'error': 'book_id is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    #get the member profile of the logged in user
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'Sorry, member profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #getting the book
+    try:
+        book = Book.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'Oops, book not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #finding the active borrowing record for this member and book
+    try:
+        borrowing = Borrowing.objects.get(
+            book=book,
+            member=member,
+            returning_date__isnull=True
+            )
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'Sorry, no active borrowing found for this book'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #setting return date to today 
+    borrowing.return_date = date.today()
+    borrowing.save()
+
+    book.is_available = True
+    book.save()
+
+    serializer = BookSerializer(borrowing)
+    return Response(
+        {'message': 'book returned successfully',
+         'borrowing': serializer.data},
+         status=status.HTTP_200_OK
+    )
+
+
+#POST/api/renew/
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def renew_book(request):
+    book_id = request.data.get('book_id')
+
+    if not book_id:
+        return Response(
+            {'error': 'book_id is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        book = Book.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'Sorry, book not found'}, status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #checking if theres an active borrowing for that book
+    try:
+        borrowing = Borrowing.objects.get(
+            book=book, member=member, returning_date__isnull=True
+        )
+    except Borrowing.DoesNotExist:
+        return Response(
+            {'error': 'no active borrowing found for this book'}, status=status.HTTP_404_NOT_FOUND
+        )
+    
+    has_reservation = Reservation.objects.filter(book=book, is_active=True).exists()
+    if has_reservation:
+        return Response(
+            {'error': 'Oops, cannot renew, another member has reserved this book'}, status=status.HTTP_400_BAD_REQUEST
+        )
+    #extending due date by 14 days from today
+    borrowing.due_date = date.today() + timedelta(days=14)
+    borrowing.save()
+
+    serializer = BorrowingSerializer(borrowing)
+    return Response({
+        'message': 'book renewed renewed successfully, new dute date is' + str(borrowing.due_date),
+        'borrowing': serializer.data
+    }, status=status.HTTP_200_OK)
+
+#POST/api/reserve
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reserve_book(request):
+    book_id = request.data.get('book_id')
+
+    if not book_id:
+        return Response(
+            {'error': 'book_id is required'}, status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        book = Book.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'Sorry, book not found'}, status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #users can only reserve a book that is currently borrowed
+    if book.is_available:
+        return Response(
+            {'error': 'uhm book is currently available, you can borrow it directly!'}, status=status.HTTP_400_BAD_REQUEST
+        )
+    already_reserved = Reservation.objects.filter(
+        book=book, member=member, is_active=True
+    ).exists()
+    if already_reserved:
+        return Response(
+            {'error': 'you already got an active reservation for this book'}, status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    reservation = Reservation.objects.create(book=book, member=member,)
+    serializer = ReservationSerializer(reservation)
+    return Response({'message': 'book reserved successfully', 'reservation': serializer.data}, status=status.HTTP_201_CREATED)
+
+#DELETE/api/reserve
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def cancel_reservation(request):
+    book_id = request.data.get('book_id')
+    if not book_id:
+        return Response({'error': 'book_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        member = Member.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response({'error': 'book not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    try:
+        reservation = Reservation.objects.get(book=book, member=member, is_active=True)
+    except Reservation.DoesNotExist:
+        return Response(
+            {'error': 'n0 active reservation found for this book'}, status=status.HTTP_404_NOT_FOUND)
+    
+    #deactivate the reservation instead of del it 
+    ##se we can keep record of it
+    reservation.is_active = False
+    reservation.save()
+
+    return Response({'message': 'reservation cancelled successfully'}, status=status.HTTP_200_OK)
+
+
+        

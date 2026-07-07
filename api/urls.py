@@ -15,6 +15,16 @@ urlpatterns = [
     path('books/', views.book_list_create, name='book-list-create'),
     path('books/<int:pk>/', views.book_detail, name='book-detail'),
     path('books/search/', views.book_search, name='book-search'),
+
+    #borrow, return, renew
+    path('borrow/', views.borrow_book, name='borrow-book'),
+    path('return/', views.return_book, name='return-book'),
+    path('renew/', views.renew_book, name='renew-book'),
+
+    #reservations
+    path('reserve/', views.reserve_book, name='reserve-book'),
+    path('reserve/cancel/', views.cancel_reservation, name='cancel-reservation'),
 ]
+
 
 

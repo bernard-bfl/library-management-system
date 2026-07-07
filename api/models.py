@@ -20,7 +20,7 @@ class Member(models.Model):
     def __str__(self):
         return self.user.username
     
-class Bororwing(models.Model):
+class Borrowing(models.Model):
     book = models.ForeignKey(Book, on_delete=models.CASCADE)
     member = models.ForeignKey(Member, on_delete=models.CASCADE)
     borrowing_date = models.DateField(auto_now_add=True)
