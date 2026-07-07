@@ -513,4 +513,130 @@ def cancel_reservation(request):
     return Response({'message': 'reservation cancelled successfully'}, status=status.HTTP_200_OK)
 
 
-        
+#GET/api/history/
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def borrowing_history(request):
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response({'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    borrowings = Borrowing.objetcs.filter(member=member).order_by('borrowing_date')
+    if not borrowings.exists():
+        return Response({'message': 'Sorry, you got no borrowing history'}, status=status.HTTP_200_OK)
+    
+    serializer = BorrowingSerializer(borrowings, many=True)
+    return Response({'message': 'borrowing history retrieved successfully', 'history': 'serializer.data'}, status=status.HTTP_200_OK)
+
+
+#GET/api/fines/
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_fines(request):
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response({'error': 'Oops, member profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    #get all borrowings that are overdue
+    #borrowing is overdue if due_date has passed and book has not been returned 
+    today = date.today()
+    borrowings = Borrowing.objects.filter(member=member)        
+
+    fines = []
+    total_fine = 0
+    for borrowing in borrowings:
+        #calculating fine for unreturned overdue books 
+        if borrowing.returning_date is None and borrowing.due_date < today:
+            days_overdue = (today - borrowing.due_date).days
+            fine_amount = days_overdue * 0.50
+            total_fine += fine_amount
+            fines.append({
+                'book': borrowing.book.title,
+                'due_date':borrowing.due_date,
+                'days_overdue': days_overdue,
+                'fine_amount': f'${fine_amount:.2f}',
+            })
+
+        #calculating fines for returned books that were returned late 
+        elif borrowing.returning_date is not None and borrowing.due_date < borrowing.returning_date:
+            days_overdue = (borrowing.returning_date - borrowing.due_date).days
+            fine_amount = days_overdue * 0.50
+            total_fine += fine_amount
+            fines.append({
+                'book': borrowing.book.title,
+                'due_date': borrowing.due_date,
+                'days_overdue': days_overdue,
+                'fine_amount': f'${fine_amount:.2f}',
+                'returned_late_on': borrowing.returning_date,
+            })
+
+    if not fines:
+        return Response(
+            {'message': 'you have no fines'},
+            status=status.HTTP_200_OK
+        )
+    
+    return Response({
+        'fines': fines,
+        'total_fine': f'${total_fine:.2f}'
+    }, status=status.HTTP_200_OK)
+
+# GET /api/users/
+@api_view(['GET'])
+@permission_classes([IsAdminOnly])
+def list_users(request):
+    members = Member.objects.all().order_by('id')
+
+    if not members.exists():
+        return Response(
+            {'message': 'no users found'},
+            status=status.HTTP_200_OK
+        )
+    
+    serializer = MemberSerializer(members, many=True)
+    return Response({
+        'message': 'users retrieved successfully',
+        'users': serializer.data
+    }, status=status.HTTP_200_OK)
+
+# PUT /api/users/<id>/
+@api_view(['PUT'])
+@permission_classes([IsAdminOnly])
+def update_user(request, pk):
+    try:
+        member = Member.objects.get(pk=pk)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'user not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    serializer = MemberSerializer(member, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({
+            'message': 'user updated successfully',
+            'user': serializer.data
+        }, status=status.HTTP_200_OK)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# DELETE /api/users/<id>/
+@api_view(['DELETE'])
+@permission_classes([IsAdminOnly])
+def delete_user(request, pk):
+    try:
+        member = Member.objects.get(pk=pk)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'user not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+     # delete the linked User object — this cascades and deletes the Member too
+    member.user.delete()
+    return Response(
+        {'message': 'user deleted successfully'},
+        status=status.HTTP_204_NO_CONTENT
+    )
+

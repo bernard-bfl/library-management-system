@@ -24,6 +24,15 @@ urlpatterns = [
     #reservations
     path('reserve/', views.reserve_book, name='reserve-book'),
     path('reserve/cancel/', views.cancel_reservation, name='cancel-reservation'),
+
+    # history and fines
+    path('history/', views.borrowing_history, name='borrowing-history'),
+    path('fines/', views.view_fines, name='view-fines'),
+
+    # admin user management
+    path('users/', views.list_users, name='list-users'),
+    path('users/<int:pk>/update/', views.update_user, name='update-user'),
+    path('users/<int:pk>/delete/', views.delete_user, name='delete-user'),
 ]
 
 
