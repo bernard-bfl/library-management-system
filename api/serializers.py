@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Book, Member, Bororwing, Reservation
+from .models import Book, Member, Borrowing, Reservation
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -21,7 +21,7 @@ class MemberSerializer(serializers.ModelSerializer):
 
 class BorrowingSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Bororwing
+        model = Borrowing
         fields = ['id', 'book', 'member', 'borrowing_date', 'due_date', 'returning_date']
 
 class ReservationSerializer(serializers.ModelSerializer):

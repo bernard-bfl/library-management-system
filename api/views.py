@@ -199,7 +199,7 @@ def profile(request):
 @permission_classes([IsAdminOrReadOnly])
 def book_list_create(request):
     if request.method == 'GET':
-        books = Book.ojects.all().order_by('id')
+        books = Book.objects.all().order_by('id')
         serializer = BookSerializer(books, many=True)
         return Response(serializer.data)
     
@@ -373,20 +373,20 @@ def return_book(request):
             member=member,
             returning_date__isnull=True
             )
-    except Book.DoesNotExist:
+    except Borrowing.DoesNotExist:
         return Response(
             {'error': 'Sorry, no active borrowing found for this book'},
             status=status.HTTP_404_NOT_FOUND
         )
     
     #setting return date to today 
-    borrowing.return_date = date.today()
+    borrowing.returning_date = date.today()
     borrowing.save()
 
     book.is_available = True
     book.save()
 
-    serializer = BookSerializer(borrowing)
+    serializer = BorrowingSerializer(borrowing)
     return Response(
         {'message': 'book returned successfully',
          'borrowing': serializer.data},
@@ -441,7 +441,7 @@ def renew_book(request):
 
     serializer = BorrowingSerializer(borrowing)
     return Response({
-        'message': 'book renewed renewed successfully, new dute date is' + str(borrowing.due_date),
+        'message': 'book renewed renewed successfully, new dute date is'  + str(borrowing.due_date),
         'borrowing': serializer.data
     }, status=status.HTTP_200_OK)
 
@@ -530,12 +530,12 @@ def borrowing_history(request):
     except Member.DoesNotExist:
         return Response({'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND)
     
-    borrowings = Borrowing.objetcs.filter(member=member).order_by('borrowing_date')
+    borrowings = Borrowing.objects.filter(member=member).order_by('borrowing_date')
     if not borrowings.exists():
         return Response({'message': 'Sorry, you got no borrowing history'}, status=status.HTTP_200_OK)
     
     serializer = BorrowingSerializer(borrowings, many=True)
-    return Response({'message': 'borrowing history retrieved successfully', 'history': 'serializer.data'}, status=status.HTTP_200_OK)
+    return Response({'message': 'borrowing history retrieved successfully', 'history': serializer.data}, status=status.HTTP_200_OK)
 
 
 #GET/api/fines/
