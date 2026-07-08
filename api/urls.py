@@ -28,6 +28,7 @@ urlpatterns = [
     # history and fines
     path('history/', views.borrowing_history, name='borrowing-history'),
     path('fines/', views.view_fines, name='view-fines'),
+    path('fines/pay/', views.pay_fine, name='pay-fine'),
 
     # admin user management
     path('users/', views.list_users, name='list-users'),

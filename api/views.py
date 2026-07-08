@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Book, Member, Reservation, Borrowing
+from .models import Member, Reservation, Borrowing, Book
 from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, ReservationSerializer
 from .email_service import send_otp_email
 from .permissions import IsAdminOrReadOnly, IsAdminOnly
@@ -497,7 +497,15 @@ def cancel_reservation(request):
     try:
         member = Member.objects.get(pk=book_id)
     except Book.DoesNotExist:
-        return Response({'error': 'book not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    try:
+        book = Book.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'book not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
     
     try:
         reservation = Reservation.objects.get(book=book, member=member, is_active=True)
@@ -640,3 +648,60 @@ def delete_user(request, pk):
         status=status.HTTP_204_NO_CONTENT
     )
 
+#POST/api/fines/pay
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def pay_fine(request):
+    book_id = request.data.get('book_id')
+
+    if not book_id:
+        return Response({'error': 'book_id is required'},status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response({'error': 'book not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    try:
+        book = Book.objects.get(pk=book_id)
+    except Book.DoesNotExist:
+        return Response(
+            {'error': 'book not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    #finding the borrowing record for this book
+    try:
+        borrowing = Borrowing.objects.get(book=book, member=member)
+    except Borrowing.DoesNotExist:
+        return Response(
+            {'error': 'no borrowing record found for this book'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    # calculate the fine
+    today = date.today()
+    days_overdue = 0
+    fine_amount = 0
+
+    # book still out and overdue
+    if borrowing.returning_date is None and borrowing.due_date < today:
+        days_overdue = (today - borrowing.due_date).days
+        fine_amount = days_overdue * 0.50
+
+    # book returned late
+    elif borrowing.returning_date is not None and borrowing.due_date < borrowing.returning_date:
+        days_overdue = (borrowing.returning_date - borrowing.due_date).days
+        fine_amount = days_overdue * 0.50
+
+    if fine_amount == 0:
+        return Response(
+            {'message': 'you have no fine for this book'},
+            status=status.HTTP_200_OK
+        )
+
+    return Response({
+        'message': f'fine of ${fine_amount:.2f} for {book.title} paid successfully',
+        'book': book.title,
+        'days_overdue': days_overdue,
+        'amount_paid': f'${fine_amount:.2f}',
+    }, status=status.HTTP_200_OK)
