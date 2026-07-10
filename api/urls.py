@@ -10,6 +10,12 @@ urlpatterns = [
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('auth/profile/', views.profile, name='profile'),
 
+    # forgot password
+    path('auth/logout/', views.logout, name='logout'),
+    path('auth/forgot-password/', views.forgot_password, name='forgot-password'),
+    path('auth/forgot-password/verify-otp/', views.forgot_password_verify_otp, name='forgot-password-verify-otp'),
+    path('auth/forgot-password/reset/', views.reset_password, name='reset-password'),
+
 
     #books
     path('books/', views.book_list_create, name='book-list-create'),

@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 from .models import Member, Reservation, Borrowing, Book
 from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, ReservationSerializer
 from .email_service import send_otp_email
@@ -165,6 +166,115 @@ def verify_otp(request):
         'refresh': str(refresh),
     }, status=status.HTTP_200_OK)
 
+#POST/api/auth/logout/
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    refresh_token = request.data.get('refresh')
+    if not refresh_token:
+        return Response({'error': 'Sorry, refresh token is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        token = RefreshToken(refresh_token)
+        token.blacklist()
+    except TokenError:
+        return Response({'error': 'Oops invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'message': 'logged out successfully'}, status=status.HTTP_200_OK)
+
+
+#POST/api/auth/forgot-password
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    email = request.data.get('email')
+    if not email:
+        return Response({'error': 'email is required'}, status=status.HTTP_400_BAD_REQUEST)
+    #checking if user exists
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'message': 'if an account with this email exists, an OTP has been sent'}, status=status.HTTP_200_OK)
+    except User.MultipleObjectsReturned:
+        return Response({'error': 'multiple accounts found with this email, please contact support'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    otp = str(random.randint(100000, 999999))
+
+    #store otp in cache for 5 mins 
+    cache.set(f'forgot_password_otp_{email}', otp, timeout=300)
+    email_sent = send_otp_email(email, otp)
+    if not email_sent:
+        cache.delete(f'forgot_password_otp_{email}')
+        return Response({'error': 'failed to send OTP, please try again'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response({'message': 'if an account with that email exists, an OTP has been sent'}, status=status.HTTP_200_OK)
+
+
+#POST/api/auth/forgot-password/verify-otp/
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password_verify_otp(request):
+    email = request.data.get('email')
+    otp = request.data.get('otp')
+
+    if not all([email, otp]):
+        return Response({'error': 'email and otp are required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    cached_otp = cache.get(f'forgot_password_otp{email}')
+
+    if cached_otp is None:
+        return Response({'error': 'OTP has expired, please request a new one...'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    if cached_otp != otp:
+        return Response({'error': 'invalid OTP'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    cache.delete(f'forgot_password_otp_{email}')
+    cache.set(f'forgot_password_verified_{email}', True, timeout=300)
+    return Response(
+        {'message': 'OTP verified successfully, you can now reset your password'},
+        status=status.HTTP_200_OK
+    )
+
+# POST /api/auth/forgot-password/reset/
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_password(request):
+    email = request.data.get('email')
+    new_password = request.data.get('new_password')
+
+    if not all([email, new_password]):
+        return Response(
+            {'error': 'email and new_password are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # check if OTP was verified for this email
+    verified = cache.get(f'forgot_password_verified_{email}')
+    if not verified:
+        return Response(
+            {'error': 'please verify your OTP first before resetting password'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'user not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except User.MultipleObjectsReturned:
+        return Response(
+            {'error': 'multiple accounts found with this email, please contact support'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    user.set_password(new_password)
+    user.save()
+
+    cache.delete(f'forgot_password_verified_{email}')
+
+    return Response(
+        {'message': 'password reset successfully, please login with your new password'},
+        status=status.HTTP_200_OK
+    )
 
 
 # GET /api/auth/profile/
