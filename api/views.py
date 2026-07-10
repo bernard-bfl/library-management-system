@@ -1,5 +1,7 @@
 import os
 import random
+import uuid
+import requests as http_requests
 from django.core.cache import cache
 from django.contrib.auth.models import User
 from django.shortcuts import render
@@ -9,8 +11,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from .models import Member, Reservation, Borrowing, Book
-from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, ReservationSerializer
+from .models import Member, Reservation, Borrowing, Book, Payment
+from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, ReservationSerializer, PaymentSerializer
 from .email_service import send_otp_email
 from .permissions import IsAdminOrReadOnly, IsAdminOnly
 from datetime import date, timedelta
@@ -814,4 +816,12 @@ def pay_fine(request):
         'book': book.title,
         'days_overdue': days_overdue,
         'amount_paid': f'${fine_amount:.2f}',
-    }, status=status.HTTP_200_OK)
+    }, status=status.HTTP_200_OK)\
+    
+#POST/api/payments
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def initialize_payment(request):
+    borrowing_id = request.data.get('borrowing_id')
+    if not borrowing_id:
+        return Response({'error': 'borrowin_id is required'}, status=status.HTTP_400_BAD_REQUEST)
