@@ -650,6 +650,29 @@ def borrowing_history(request):
     return Response({'message': 'borrowing history retrieved successfully', 'history': serializer.data}, status=status.HTTP_200_OK)
 
 
+
+#helper function for calculating the fine 
+def calculate_fine(borrowing):
+    today = date.today()
+    days_overdue = 0
+    fine_amount = 0
+
+    #so for book still out and overdue
+    if borrowing.returning_date is None and borrowing.due_date < today:
+        days_overdue = (today - borrowing.due_date).days
+        fine_amount = days_overdue * 0.50
+
+    #if book returned late
+    elif borrowing.returning_date is not None and borrowing.due_date < borrowing.returning_date:
+        days_overdue = (borrowing.returning_date - borrowing.due_date).days
+        fine_amount = days_overdue * 0.50
+
+    return {
+        'days_overdue': days_overdue,
+        'fine_amount': fine_amount,
+    }
+
+
 #GET/api/fines/
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -661,36 +684,20 @@ def view_fines(request):
     
     #get all borrowings that are overdue
     #borrowing is overdue if due_date has passed and book has not been returned 
-    today = date.today()
     borrowings = Borrowing.objects.filter(member=member)        
 
     fines = []
     total_fine = 0
     for borrowing in borrowings:
-        #calculating fine for unreturned overdue books 
-        if borrowing.returning_date is None and borrowing.due_date < today:
-            days_overdue = (today - borrowing.due_date).days
-            fine_amount = days_overdue * 0.50
-            total_fine += fine_amount
-            fines.append({
-                'book': borrowing.book.title,
-                'due_date':borrowing.due_date,
-                'days_overdue': days_overdue,
-                'fine_amount': f'${fine_amount:.2f}',
-            })
-
-        #calculating fines for returned books that were returned late 
-        elif borrowing.returning_date is not None and borrowing.due_date < borrowing.returning_date:
-            days_overdue = (borrowing.returning_date - borrowing.due_date).days
-            fine_amount = days_overdue * 0.50
-            total_fine += fine_amount
+        fine = calculate_fine(borrowing)
+        if fine['fine_amount'] > 0:
             fines.append({
                 'book': borrowing.book.title,
                 'due_date': borrowing.due_date,
-                'days_overdue': days_overdue,
-                'fine_amount': f'${fine_amount:.2f}',
-                'returned_late_on': borrowing.returning_date,
+                'days_overdue': fine['days_overdue'],
+                'fine_amount': f'GHS {fine["fine_amount"]:.2f}',
             })
+            total_fine += fine['fine_amount']
 
     if not fines:
         return Response(
@@ -702,6 +709,103 @@ def view_fines(request):
         'fines': fines,
         'total_fine': f'${total_fine:.2f}'
     }, status=status.HTTP_200_OK)
+
+
+
+# GET /api/fines/history/
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def fine_history(request):
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response(
+            {'error': 'member profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    borrowings = Borrowing.objects.filter(member=member)
+    status_filter = request.query_params.get('status', None)
+    sort_by = request.query_params.get('sort', '-borrowing_date')
+
+    fines = []
+
+    for borrowing in borrowings:
+        fine = calculate_fine(borrowing)
+        fine_amount = fine['fine_amount']
+        days_overdue = fine['days_overdue']
+
+        if fine_amount > 0:
+            paid = Payment.objects.filter(
+                borrowing=borrowing,
+                status='success'
+            ).exists()
+            fine_status = 'paid' if paid else 'unpaid'
+            fines.append({
+                'borrowing_id': borrowing.id,
+                'book': borrowing.book.title,
+                'due_date': borrowing.due_date,
+                'days_overdue': days_overdue,
+                'fine_amount': f'GHS {fine_amount:.2f}',
+                'fine_status': fine_status,
+                'borrowing_date': borrowing.borrowing_date,
+                'returning_date': borrowing.returning_date,
+            })
+        
+    #apply status filter
+    if status_filter in ['paid', 'unpaid']:
+        fines = [f for f in fines if f['fine_status'] == status_filter]
+
+    # apply sorting
+    reverse = True
+    sort_key = 'borrowing_date'
+
+    if sort_by == 'borrowing_date':
+        sort_key = 'borrowing_date'
+        reverse = False
+    elif sort_by == '-borrowing_date':
+        sort_key = 'borrowing_date'
+        reverse = True
+    elif sort_by == 'fine_amount':
+        sort_key = 'fine_amount'
+        reverse = False
+    elif sort_by == '-fine_amount':
+        sort_key = 'fine_amount'
+        reverse = True
+    elif sort_by == 'days_overdue':
+        sort_key = 'days_overdue'
+        reverse = False
+    elif sort_by == '-days_overdue':
+        sort_key = 'days_overdue'
+        reverse = True
+
+    fines = sorted(fines, key=lambda x: x[sort_key], reverse=reverse)
+
+    # pagination
+    page = int(request.query_params.get('page', 1))
+    page_size = int(request.query_params.get('page_size', 10))
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated_fines = fines[start:end]
+
+    return Response({
+        'total_fines': len(fines),
+        'page': page,
+        'page_size': page_size,
+        'total_pages': (len(fines) + page_size - 1) // page_size,
+        'fines': paginated_fines,
+    }, status=status.HTTP_200_OK)
+    
+
+
+
+
+
+
+
+
+
+
 
 # GET /api/users/
 @api_view(['GET'])
@@ -790,20 +894,9 @@ def pay_fine(request):
             {'error': 'no borrowing record found for this book'},
             status=status.HTTP_404_NOT_FOUND
         )
-    # calculate the fine
-    today = date.today()
-    days_overdue = 0
-    fine_amount = 0
-
-    # book still out and overdue
-    if borrowing.returning_date is None and borrowing.due_date < today:
-        days_overdue = (today - borrowing.due_date).days
-        fine_amount = days_overdue * 0.50
-
-    # book returned late
-    elif borrowing.returning_date is not None and borrowing.due_date < borrowing.returning_date:
-        days_overdue = (borrowing.returning_date - borrowing.due_date).days
-        fine_amount = days_overdue * 0.50
+    fine = calculate_fine(borrowing)
+    fine_amount = fine['fine_amount']
+    days_overdue = fine['days_overdue']
 
     if fine_amount == 0:
         return Response(
@@ -812,16 +905,79 @@ def pay_fine(request):
         )
 
     return Response({
-        'message': f'fine of ${fine_amount:.2f} for {book.title} paid successfully',
+        'message': f'fine of GHS {fine_amount:.2f} for {book.title} paid successfully',
         'book': book.title,
         'days_overdue': days_overdue,
-        'amount_paid': f'${fine_amount:.2f}',
-    }, status=status.HTTP_200_OK)\
-    
+        'amount_paid': f'GHS {fine_amount:.2f}',
+    }, status=status.HTTP_200_OK)
+
+
+
 #POST/api/payments
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def initialize_payment(request):
     borrowing_id = request.data.get('borrowing_id')
     if not borrowing_id:
-        return Response({'error': 'borrowin_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'borrowing_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        member = Member.objects.get(user=request.user)
+    except Member.DoesNotExist:
+        return Response({'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    try:
+        borrowing = Borrowing.objects.get(pk=borrowing_id, member=member)
+    except Borrowing.DoesNotExist:
+        return Response({'error': 'borrowing record not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    fine = calculate_fine(borrowing)
+    fine_amount = fine['fine_amount']
+
+    if fine_amount == 0:
+        return Response(
+        {'message': 'you have no fine for this borrowing'},
+        status=status.HTTP_200_OK
+    )
+
+
+#GET/api/payments/verify/<reference>/
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def verify_payment(request, reference):
+    headers = {
+        'Authorization': f'Bearer {os.getenv("PAYSTACK_SECRET_KEY")}',
+        'Content_Type': 'application/json'
+    }
+    response = http_requests.get(
+        f'https://api.paystack.co/transaction/verify/{reference}',
+        headers=headers
+    )
+    if response.status_code != 200:
+        return Response({'error': 'failed to verify payment'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    response_data = response.json()
+    paystack_status = response_data['data']['status']
+
+    try:
+        payment = Payment.objects.get(reference=reference)
+    except Payment.DoesNotExist:
+        return Response({'error': 'payment record not found'})
+    
+    if paystack_status == 'success':
+        payment_status = 'success'
+        payment.save()
+        return Response({
+            'message': 'payment verified successfully',
+            'reference': reference,
+            'amount': f'GHS {payment.amount:.2f}',
+            'status': 'success'
+            }, status=status.HTTP_200_OK)
+    else:
+        payment.status = 'failed'
+        payment.save()
+        return Response({
+            'message': 'payment failed or not completed',
+            'status': paystack_status,
+        }, status=status.HTTP_400_BAD_REQUEST)
+

@@ -40,7 +40,15 @@ urlpatterns = [
     path('users/', views.list_users, name='list-users'),
     path('users/<int:pk>/update/', views.update_user, name='update-user'),
     path('users/<int:pk>/delete/', views.delete_user, name='delete-user'),
-]
+
+    # payments
+    path('payments/', views.initialize_payment, name='initialize-payment'),
+    path('payments/verify/<str:reference>/', views.verify_payment, name='verify-payment'),
+
+    # fine history
+    path('fines/history/', views.fine_history, name='fine-history'),
+
+    ]
 
 
 
