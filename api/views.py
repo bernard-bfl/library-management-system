@@ -2,6 +2,7 @@ import os
 import random
 import uuid
 import requests as http_requests
+
 from django.core.cache import cache
 from django.contrib.auth.models import User
 from django.shortcuts import render
@@ -587,6 +588,12 @@ def reserve_book(request):
         return Response(
             {'error': 'uhm book is currently available, you can borrow it directly!'}, status=status.HTTP_400_BAD_REQUEST
         )
+    #checking if the member is the one who currently has the book borrowed
+    already_borrowed_by_member = Borrowing.objects.filter(book=book, member=member, returning_date__isnull=True).exists()
+
+    if already_borrowed_by_member:
+        return Response({'error': 'you cannot reserve a book you have already borrwed'}, status=status.HTTP_400_BAD_REQUEST)
+    #checking if member has an already active reservation
     already_reserved = Reservation.objects.filter(
         book=book, member=member, is_active=True
     ).exists()
@@ -864,54 +871,6 @@ def delete_user(request, pk):
         status=status.HTTP_204_NO_CONTENT
     )
 
-#POST/api/fines/pay
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def pay_fine(request):
-    book_id = request.data.get('book_id')
-
-    if not book_id:
-        return Response({'error': 'book_id is required'},status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        member = Member.objects.get(user=request.user)
-    except Member.DoesNotExist:
-        return Response({'error': 'book not found'}, status=status.HTTP_404_NOT_FOUND)
-    
-    try:
-        book = Book.objects.get(pk=book_id)
-    except Book.DoesNotExist:
-        return Response(
-            {'error': 'book not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    
-    #finding the borrowing record for this book
-    try:
-        borrowing = Borrowing.objects.get(book=book, member=member)
-    except Borrowing.DoesNotExist:
-        return Response(
-            {'error': 'no borrowing record found for this book'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    fine = calculate_fine(borrowing)
-    fine_amount = fine['fine_amount']
-    days_overdue = fine['days_overdue']
-
-    if fine_amount == 0:
-        return Response(
-            {'message': 'you have no fine for this book'},
-            status=status.HTTP_200_OK
-        )
-
-    return Response({
-        'message': f'fine of GHS {fine_amount:.2f} for {book.title} paid successfully',
-        'book': book.title,
-        'days_overdue': days_overdue,
-        'amount_paid': f'GHS {fine_amount:.2f}',
-    }, status=status.HTTP_200_OK)
-
-
 
 #POST/api/payments
 @api_view(['POST'])
@@ -939,6 +898,56 @@ def initialize_payment(request):
         {'message': 'you have no fine for this borrowing'},
         status=status.HTTP_200_OK
     )
+    #checking if fine has already been paid
+    already_paid = Payment.objects.filter(borrowing=borrowing, status='success').exists()
+    if already_paid:
+        return Response({'message': 'uhm sorry fine for this borrowing has already been paid'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # generate a unique reference for this transaction
+    reference = str(uuid.uuid4()).replace('-', '')[:20]
+
+     # initialize payment with Paystack
+    headers = {
+        'Authorization': f'Bearer {os.getenv("PAYSTACK_SECRET_KEY")}',
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        'email': request.user.email,
+        'amount': int(fine_amount * 100),  # convert to pesewas
+        'reference': reference,
+        'callback_url': 'http://127.0.0.1:8000/api/payments/verify/',
+        'metadata': {
+            'borrowing_id': borrowing_id,
+            'member_id': member.id,
+        }
+    }
+    response = http_requests.post(
+        'https://api.paystack.co/transaction/initialize',
+        json=payload,
+        headers=headers
+    )
+    if response.status_code != 200:
+        return Response(
+            {'error': 'failed to initialize payment, please try again'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    response_data = response.json()
+
+    # create a pending payment record
+    Payment.objects.create(
+        member=member,
+        borrowing=borrowing,
+        amount=fine_amount,
+        reference=reference,
+        status='pending'
+    )
+
+    return Response({
+        'message': 'payment initialized successfully',
+        'payment_url': response_data['data']['authorization_url'],
+        'reference': reference,
+        'amount': f'GHS {fine_amount:.2f}',
+    }, status=status.HTTP_200_OK)
 
 
 #GET/api/payments/verify/<reference>/
@@ -947,7 +956,7 @@ def initialize_payment(request):
 def verify_payment(request, reference):
     headers = {
         'Authorization': f'Bearer {os.getenv("PAYSTACK_SECRET_KEY")}',
-        'Content_Type': 'application/json'
+        'Content-Type': 'application/json'
     }
     response = http_requests.get(
         f'https://api.paystack.co/transaction/verify/{reference}',
@@ -965,7 +974,7 @@ def verify_payment(request, reference):
         return Response({'error': 'payment record not found'})
     
     if paystack_status == 'success':
-        payment_status = 'success'
+        payment.status = 'success'
         payment.save()
         return Response({
             'message': 'payment verified successfully',
