@@ -17,11 +17,118 @@ from .serializers import BookSerializer, MemberSerializer, BorrowingSerializer, 
 from .email_service import send_otp_email
 from .permissions import IsAdminOrReadOnly, IsAdminOnly
 from datetime import date, timedelta
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
+
+# define request bodies once as variables
+SIGNUP_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'username': {'type': 'string'},
+            'email': {'type': 'string'},
+            'password': {'type': 'string'},
+            'location': {'type': 'string'},
+            'age': {'type': 'integer'},
+        },
+        'required': ['username', 'email', 'password', 'location', 'age']
+    }
+}
+
+LOGIN_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'email': {'type': 'string'},
+            'password': {'type': 'string'},
+        },
+        'required': ['email', 'password']
+    }
+}
+
+VERIFY_OTP_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'email': {'type': 'string'},
+            'otp': {'type': 'string'},
+        },
+        'required': ['email', 'otp']
+    }
+}
+
+FORGOT_PASSWORD_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'email': {'type': 'string'},
+        },
+        'required': ['email']
+    }
+}
+
+RESET_PASSWORD_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'email': {'type': 'string'},
+            'new_password': {'type': 'string'},
+        },
+        'required': ['email', 'new_password']
+    }
+}
+
+LOGOUT_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'refresh': {'type': 'string'},
+        },
+        'required': ['refresh']
+    }
+}
+
+BOOK_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'title': {'type': 'string'},
+            'author': {'type': 'string'},
+            'published_year': {'type': 'string', 'format': 'date'},
+            'is_available': {'type': 'boolean'},
+        },
+        'required': ['title', 'author', 'published_year']
+    }
+}
+
+BORROW_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'book_id': {'type': 'integer'},
+        },
+        'required': ['book_id']
+    }
+}
+
+PAYMENT_REQUEST = {
+    'application/json': {
+        'type': 'object',
+        'properties': {
+            'borrowing_id': {'type': 'integer'},
+        },
+        'required': ['borrowing_id']
+    }
+}
+
+
+
 
 # Create your views here.
 
 #authentication views
 #POST/api/auth/signup
+@extend_schema(request=SIGNUP_REQUEST, description='Register a new user account')
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup(request):
@@ -75,6 +182,7 @@ def signup(request):
     }, status=status.HTTP_201_CREATED)
 
 #POST/api/auth/login
+@extend_schema(request=LOGIN_REQUEST, description='Login and receive OTP via email')
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
@@ -123,6 +231,7 @@ def login(request):
 
 # POST /api/auth/login/verify-otp/
 #second step; here we verify the otp and return jwt tokens
+@extend_schema(request=VERIFY_OTP_REQUEST, description='Verify OTP and receive JWT tokens')
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_otp(request):
@@ -170,6 +279,7 @@ def verify_otp(request):
     }, status=status.HTTP_200_OK)
 
 #POST/api/auth/logout/
+@extend_schema(request=LOGOUT_REQUEST, description='Logout and blacklist refresh token')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout(request):
@@ -186,6 +296,7 @@ def logout(request):
 
 
 #POST/api/auth/forgot-password
+@extend_schema(request=FORGOT_PASSWORD_REQUEST, description='Request password reset OTP')
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def forgot_password(request):
@@ -212,6 +323,7 @@ def forgot_password(request):
 
 
 #POST/api/auth/forgot-password/verify-otp/
+@extend_schema(request=VERIFY_OTP_REQUEST, description='Verify password reset OTP')
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def forgot_password_verify_otp(request):
@@ -237,6 +349,7 @@ def forgot_password_verify_otp(request):
     )
 
 # POST /api/auth/forgot-password/reset/
+@extend_schema(request=RESET_PASSWORD_REQUEST, description='Reset password with new password')
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def reset_password(request):
@@ -308,6 +421,8 @@ def profile(request):
 #book views 
 # GET /api/books/
 # POST /api/books/
+@extend_schema(methods=['GET'], description='List all books')
+@extend_schema(methods=['POST'], request=BOOK_REQUEST, description='Add a new book - admin only')
 @api_view(['GET', 'POST'])
 @permission_classes([IsAdminOrReadOnly])
 def book_list_create(request):
@@ -334,7 +449,9 @@ def book_list_create(request):
         return Response(error_data, status=status.HTTP_400_BAD_REQUEST)
 
 
-
+@extend_schema(methods=['GET'], description='Get a single book')
+@extend_schema(methods=['PUT'], request=BOOK_REQUEST, description='Update a book - admin only')
+@extend_schema(methods=['DELETE'], description='Delete a book - admin only')
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAdminOrReadOnly])
 def book_detail(request, pk):
@@ -382,6 +499,7 @@ def book_search(request):
 
 
 #POST/api/borrow
+@extend_schema(request=BORROW_REQUEST, description='Borrow a book')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def borrow_book(request):
@@ -450,6 +568,7 @@ def borrow_book(request):
 
 
 #POST/api/return
+@extend_schema(request=BORROW_REQUEST, description='Return a borrowed book')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def return_book(request):
@@ -508,6 +627,7 @@ def return_book(request):
 
 
 #POST/api/renew/
+@extend_schema(request=BORROW_REQUEST, description='Renew a borrowed book')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def renew_book(request):
@@ -559,6 +679,7 @@ def renew_book(request):
     }, status=status.HTTP_200_OK)
 
 #POST/api/reserve
+@extend_schema(request=BORROW_REQUEST, description='Reserve a book')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def reserve_book(request):
@@ -607,6 +728,7 @@ def reserve_book(request):
     return Response({'message': 'book reserved successfully', 'reservation': serializer.data}, status=status.HTTP_201_CREATED)
 
 #DELETE/api/reserve
+@extend_schema(request=BORROW_REQUEST, description='Cancel a reservation')
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def cancel_reservation(request):
@@ -641,6 +763,7 @@ def cancel_reservation(request):
 
 
 #GET/api/history/
+@extend_schema(description='View borrowing history')
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def borrowing_history(request):
@@ -681,6 +804,7 @@ def calculate_fine(borrowing):
 
 
 #GET/api/fines/
+@extend_schema(description='View current fines')
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def view_fines(request):
@@ -720,6 +844,7 @@ def view_fines(request):
 
 
 # GET /api/fines/history/
+@extend_schema(description='View fine history with pagination, filtering and sorting')
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def fine_history(request):
@@ -815,6 +940,7 @@ def fine_history(request):
 
 
 # GET /api/users/
+@extend_schema(description='List all users - admin only')
 @api_view(['GET'])
 @permission_classes([IsAdminOnly])
 def list_users(request):
@@ -833,6 +959,7 @@ def list_users(request):
     }, status=status.HTTP_200_OK)
 
 # PUT /api/users/<id>/
+@extend_schema(description='Update a user - admin only')
 @api_view(['PUT'])
 @permission_classes([IsAdminOnly])
 def update_user(request, pk):
@@ -853,6 +980,7 @@ def update_user(request, pk):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # DELETE /api/users/<id>/
+@extend_schema(description='Delete a user - admin only')
 @api_view(['DELETE'])
 @permission_classes([IsAdminOnly])
 def delete_user(request, pk):
@@ -873,6 +1001,7 @@ def delete_user(request, pk):
 
 
 #POST/api/payments
+@extend_schema(request=PAYMENT_REQUEST, description='Initialize Paystack payment for a fine')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def initialize_payment(request):
@@ -951,6 +1080,7 @@ def initialize_payment(request):
 
 
 #GET/api/payments/verify/<reference>/
+@extend_schema(description='Verify Paystack payment status')
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def verify_payment(request, reference):
