@@ -141,22 +141,17 @@ def signup(request):
     #validation check for all fields
     if not all([username, email, password, location, age]):
         return Response(
-            {'error': 'all fields are required: username, email, password, location, age'},
-            status=status.HTTP_400_BAD_REQUEST
+            {'error': 'all fields are required: username, email, password, location, age'}, status=status.HTTP_400_BAD_REQUEST
         )
     
     #username validation 
     if User.objects.filter(username=username).exists():
         return Response(
-            {'error': 'sorry, username already taken'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'sorry, username already taken'}, status=status.HTTP_400_BAD_REQUEST )
     #email validation
     if User.objects.filter(email=email).exists():
         return Response(
-            {'error': 'email already registered'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'email already registered'}, status=status.HTTP_400_BAD_REQUEST )
 
     #creating user where here django hashes the password automatically
     user = User.objects.create_user(
@@ -178,8 +173,7 @@ def signup(request):
     return Response({
         'message': 'Account created successfully',
         'access': str(refresh.access_token),
-        'refresh': str(refresh),
-    }, status=status.HTTP_201_CREATED)
+        'refresh': str(refresh), }, status=status.HTTP_201_CREATED)
 
 #POST/api/auth/login
 @extend_schema(request=LOGIN_REQUEST, description='Login and receive OTP via email')
@@ -191,23 +185,17 @@ def login(request):
 
     if not all([email, password]):
         return Response(
-            {'error': 'email and password are required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'email and password are required'}, status=status.HTTP_400_BAD_REQUEST )
     
-    try:
+    try: 
         user = User.objects.get(email=email)
     except User.DoesNotExist:
         return Response(
-            {'error': 'invalid credentials'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+            {'error': 'invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED )
     
     if not user.check_password(password):
         return Response(
-            {'error': 'invalid credentials'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+            {'error': 'invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED )
     
      # generate 6 digit OTP
     otp = str(random.randint(100000, 999999))
@@ -220,13 +208,9 @@ def login(request):
     if not email_sent:
         cache.delete(f'otp_{email}')
         return Response(
-            {'error': 'failed to send OTP, please try again'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+            {'error': 'failed to send OTP, please try again'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR )
     return Response({
-        'message': 'OTP has been sent to your mail, please verify to complete login'
-    }, status=status.HTTP_200_OK)
-
+        'message': 'OTP has been sent to your mail, please verify to complete login'}, status=status.HTTP_200_OK)
 
 
 # POST /api/auth/login/verify-otp/
@@ -240,23 +224,17 @@ def verify_otp(request):
 
     if not all([email, otp]):
         return Response(
-            {'error': 'email and otp are required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'email and otp are required'}, status=status.HTTP_400_BAD_REQUEST )
     
     cached_otp = cache.get(f'otp_{email}')
 
     if cached_otp is None:
         return Response(
-            {'error': 'OTP has expired, please login again'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'OTP has expired, please login again'}, status=status.HTTP_400_BAD_REQUEST )
 
     if cached_otp != otp:
         return Response(
-            {'error': 'invalid OTP'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'invalid OTP'}, status=status.HTTP_400_BAD_REQUEST )
     
     # delete OTP immediately so it can't be reused
     cache.delete(f'otp_{email}')
@@ -266,9 +244,7 @@ def verify_otp(request):
         user = User.objects.get(email=email)
     except User.DoesNotExist:
         return Response(
-            {'error': 'user not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+            {'error': 'user not found'}, status=status.HTTP_404_NOT_FOUND )
     
     refresh = RefreshToken.for_user(user)
 
@@ -358,29 +334,21 @@ def reset_password(request):
 
     if not all([email, new_password]):
         return Response(
-            {'error': 'email and new_password are required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'email and new_password are required'}, status=status.HTTP_400_BAD_REQUEST )
     
     # check if OTP was verified for this email
     verified = cache.get(f'forgot_password_verified_{email}')
     if not verified:
         return Response(
-            {'error': 'please verify your OTP first before resetting password'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'please verify your OTP first before resetting password'}, status=status.HTTP_400_BAD_REQUEST )
     try:
         user = User.objects.get(email=email)
     except User.DoesNotExist:
         return Response(
-            {'error': 'user not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+            {'error': 'user not found'}, status=status.HTTP_404_NOT_FOUND )
     except User.MultipleObjectsReturned:
         return Response(
-            {'error': 'multiple accounts found with this email, please contact support'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            {'error': 'multiple accounts found with this email, please contact support'}, status=status.HTTP_400_BAD_REQUEST )
     
     user.set_password(new_password)
     user.save()
@@ -388,10 +356,7 @@ def reset_password(request):
     cache.delete(f'forgot_password_verified_{email}')
 
     return Response(
-        {'message': 'password reset successfully, please login with your new password'},
-        status=status.HTTP_200_OK
-    )
-
+        {'message': 'password reset successfully, please login with your new password'}, status=status.HTTP_200_OK )
 
 # GET /api/auth/profile/
 # PUT /api/auth/profile/
@@ -402,9 +367,7 @@ def profile(request):
         member = Member.objects.get(user=request.user)
     except Member.DoesNotExist:
         return Response(
-            {'error': 'member profile not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+            {'error': 'member profile not found'}, status=status.HTTP_404_NOT_FOUND )
     
     if request.method == 'GET':
         serializer = MemberSerializer(member)
